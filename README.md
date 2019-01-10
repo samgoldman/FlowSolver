@@ -1,4 +1,4 @@
-#Flow Free Solver
+# Flow Free Solver
 
 There are two versions of this solver:
 1. Python, located in /old_python
@@ -45,6 +45,10 @@ There are two versions of this solver:
             1. Square puzzles: left to right
             2. Hex puzzles: alternating bottom right to top left and bottom left to top right
         5. Note: in the case of warps, the warps should be designated by a `-` or `|` after the last row or column
+
+Notes:
+1. Cells may be skipped: puzzles do not need to be be perfect rectangles
+2. Walls may be created by omitting the appropriate neighbor characters
    
 ### Standard Example:
 ```aidl
@@ -107,3 +111,7 @@ C-.-.-.-D
 |/|\|/|\|
 .-C-B-E-.
 ```
+
+Note that these are not layed out like hexes. Hex puzzles must be flattened into rows. The (shitty) white lines in the image below show how rows are formed. Due to this, the `-` neighbor character alternates which neighbor relationship it refers to. Also note how in the top row, there are cells skipped. This is acceptable for all types of puzzles.
+
+<img width="360" height="740" src="https://raw.githubusercontent.com/samgoldman/flowsolver/master/puzzles/hex/Classic5x5_1.jpg" />
