@@ -2,7 +2,7 @@
 
 There are two versions of this solver:
 ### Python
-0. Located in /old_python
+0. Located in /old_python (because it's older)
 1. Only supports standard Flow puzzles (no bridges, hexes, warps)
 2. Will scan puzzle screenshots
 3. Because of (2), requires the python OpenCV module to be installed
