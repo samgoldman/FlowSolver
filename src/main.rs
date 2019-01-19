@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+extern crate time;
+
 use std::cmp::max;
 use std::collections::HashMap;
 use std::env;
@@ -8,6 +10,8 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
+use std::collections::BinaryHeap;
+use time::PreciseTime;
 
 const ALPHA_UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -34,7 +38,7 @@ mod flow {
     use super::cell;
     use super::puzzle;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Eq, Clone)]
     pub struct Flow {
         // TODO: remove pub modifier
         pub id: usize,
@@ -45,7 +49,11 @@ mod flow {
         // TODO: remove pub modifier
         pub letter: char,
     }
-
+    impl PartialEq for Flow {
+        fn eq(&self, _other: &Flow) -> bool {
+            false
+        }
+    }
     impl Flow {
         // Update the endpoint at the given index to the given cellID
         // endpoint should be 0 or 1
@@ -55,15 +63,24 @@ mod flow {
 
         // This doesn't actually do anything, because any actual call to it, from any useful location, makes the borrow checker very upset, and we don't want that
         // TODO See about fixing that ^. Maybe keep the logic elsewhere, like it is now, and have this take in a bool
-        pub fn update_completeness(&mut self, puzzle: &puzzle::Puzzle) {
-            self.complete = puzzle.get_cell(self.endpoints[0].unwrap()).unwrap().is_neighbor(&self.endpoints[1].unwrap());
+        pub fn is_complete(&self, puzzle: &puzzle::Puzzle) -> bool{
+            puzzle.get_cell(self.endpoints[0].unwrap()).unwrap().is_neighbor(&self.endpoints[1].unwrap())
+        }
+
+        pub fn distance_to_complete(&self, puzzle: &puzzle::Puzzle) -> f64 {
+            puzzle.get_cell(self.endpoints[0].unwrap()).unwrap().distance_to(&puzzle.get_cell(self.endpoints[1].unwrap()).unwrap())
         }
     }
 
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Eq, Clone, Copy)]
     pub struct FlowId {
         pub index: usize,
     }
+    impl PartialEq for FlowId {
+    fn eq(&self, _other: &FlowId) -> bool {
+        false
+    }
+}
 }
 
 // Structures and implementations related to cells
@@ -72,7 +89,7 @@ mod cell {
     use super::neighbor;
     use super::puzzle;
 
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Eq, Copy)]
     pub struct Cell {
         // TODO: remove pub modifier
         pub is_endpoint: bool,
@@ -87,12 +104,22 @@ mod cell {
         pub neighbors: [Option<CellId>; 6],
         // TODO: remove pub modifier
         pub is_hex: bool,
+        pub x: usize,
+        pub y: usize,
     }
-
+    impl PartialEq for Cell {
+        fn eq(&self, _other: &Cell) -> bool {
+            false
+        }
+    }
     impl Cell {
         // Update the given neighbor
         pub fn set_neighbor(&mut self, neighbor: usize, cell: CellId) {
             self.neighbors[neighbor] = Some(cell);
+        }
+
+        pub fn distance_to(&self, other: &Cell) -> f64 {
+            f64::sqrt((i32::pow(self.x as i32 - other.x as i32,2) + i32::pow(self.y as i32 - other.y as i32,2)).into())
         }
 
         // Given a CellId, check if that cell in a neighbor of this cell
@@ -135,6 +162,11 @@ mod cell {
             }
         }
 
+        // Return true if all relevant flow slots are full, false otherwise
+        pub fn is_fully_occupied(&self) -> bool {
+            self.flow_id_1.is_some() && (self.is_bridge && self.flow_id_2.is_some() || !self.is_bridge)
+        }
+
         // Return the number of neighboring cells that are not occupied
         pub fn num_open_neighbors(&self, puzzle: &puzzle::Puzzle) -> usize {
             let num_neighbors =
@@ -167,7 +199,7 @@ mod cell {
         }
 
         // Just the number of neighbors
-        pub fn num_neighbors(&self, _puzzle: &puzzle::Puzzle) -> usize {
+        pub fn num_neighbors(&self) -> usize {
             let num_neighbors =
                 // Depending on the cell type, loop through each neighbor and if it is some, count it
                 if self.is_hex {
@@ -194,9 +226,14 @@ mod cell {
         }
     }
 
-    #[derive(Debug, Default, Copy, Clone)]
+    #[derive(Debug, Default, Eq, Copy, Clone)]
     pub struct CellId {
         pub index: usize,
+    }
+    impl PartialEq for CellId {
+        fn eq(&self, _other: &CellId) -> bool {
+            false
+        }
     }
 }
 
@@ -204,14 +241,21 @@ mod cell {
 mod puzzle {
     use super::cell;
     use super::flow;
+    use std::collections::VecDeque;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Eq, Clone)]
     pub struct Puzzle {
         cells: Vec<cell::Cell>,
         // TODO: remove pub modifier
         pub flows: Vec<flow::Flow>,
         // TODO: remove pub modifier
         pub is_hex: bool,
+    }
+
+    impl PartialEq for Puzzle {
+        fn eq(&self, _other: &Puzzle) -> bool {
+            false
+        }
     }
 
     impl Puzzle {
@@ -221,7 +265,7 @@ mod puzzle {
         }
 
         // Crate a new cell
-        pub fn new_cell(&mut self, is_endpoint: bool, flow_id_1: Option<flow::FlowId>, is_bridge: bool, is_hex: bool) -> cell::CellId {
+        pub fn new_cell(&mut self, is_endpoint: bool, flow_id_1: Option<flow::FlowId>, is_bridge: bool, is_hex: bool, x: usize, y: usize) -> cell::CellId {
             let next_index = self.num_cells();
             self.cells.push(cell::Cell {
                 is_endpoint,
@@ -229,7 +273,9 @@ mod puzzle {
                 flow_id_2: None,
                 is_bridge,
                 neighbors: [None; 6],
-                is_hex
+                is_hex,
+                x,
+                y,
             });
 
             cell::CellId { index: next_index }
@@ -274,9 +320,18 @@ mod puzzle {
         pub fn num_complete(&self) -> usize {
             let mut num = 0;
             for flow in self.flows.iter() {
-                // TODO try to move this logic to flow
                 // If the flow's endpoints are neighbors, the flow is completed
-                if self.get_cell(flow.endpoints[0].unwrap()).unwrap().is_neighbor(&flow.endpoints[1].unwrap()) {
+                if flow.is_complete(self) {
+                    num += 1;
+                }
+            }
+            num
+        }
+
+        pub fn num_open_cells(&self) -> usize {
+            let mut num = 0;
+            for cell in self.cells.iter() {
+                if !cell.is_fully_occupied() {
                     num += 1;
                 }
             }
@@ -284,9 +339,14 @@ mod puzzle {
         }
 
         pub fn is_complete(&self) -> bool {
-            // Are all flows completed?
-            // TODO all cells should be full too, including both bridge slots
-            self.num_complete() == self.num_flows()
+            let mut all_occupied = true;
+            for cell in self.cells.iter() {
+                if !cell.is_fully_occupied() {
+                    all_occupied = false;
+                }
+            }
+
+            self.num_complete() == self.num_flows() && all_occupied
         }
 
         // Return a vector of all endpoints for flows that are not complete
@@ -294,14 +354,66 @@ mod puzzle {
             let mut endpoints = Vec::new();
 
             for flow in self.flows.iter() {
-                // TODO move incompletion logic to flow (again)
                 // If the flow is incomplete, push its two endpoints onto the vector
-                if !self.get_cell(flow.endpoints[0].unwrap()).unwrap().is_neighbor(&flow.endpoints[1].unwrap()) {
+                if !flow.is_complete(self) {
                     endpoints.push(flow.endpoints[0].unwrap());
                     endpoints.push(flow.endpoints[1].unwrap());
                 }
             }
             endpoints
+        }
+
+        // Return 1 if a path exists between start and end, 0 otherwise
+        pub fn path_exists(&self, start: cell::CellId, end: cell::CellId) -> usize {
+            let mut frontier: VecDeque<cell::CellId> = VecDeque::new();
+            let mut visited: Vec<usize> = Vec::new();
+            let mut added: Vec<usize> = Vec::new();
+            //print!("Checking path...");
+            //io::stdout().flush().unwrap();
+
+
+            frontier.push_back(start);
+            while frontier.len() > 0 {
+                let curr_cell = frontier.pop_front().unwrap();
+
+                visited.push(curr_cell.index);
+
+                let children = self.get_cell(curr_cell).unwrap().neighbors;
+
+                for i in 0..children.len() {
+                    let neighbor = children[i];
+
+                    if neighbor.is_some() {
+                        if !self.get_cell(neighbor.unwrap()).unwrap().is_occupied(Some(curr_cell.index)) {
+                            if self.get_cell(neighbor.unwrap()).unwrap().is_neighbor(&end) {
+                                //println!("Found after {} cells", count);
+                                return 1
+                            } else {
+                                if !visited.contains(&neighbor.unwrap().index) && !added.contains(&neighbor.unwrap().index) {
+                                    //frontier.push_back(neighbor.unwrap());
+                                    let d = self.get_cell(neighbor.unwrap()).unwrap().distance_to(&self.get_cell(end).unwrap());
+                                    if frontier.len() == 0 {
+                                        frontier.insert(0, neighbor.unwrap());
+                                        added.push(neighbor.unwrap().index);
+                                        continue;
+                                    }
+                                    for i in 0..frontier.len() {
+                                        if d <= self.get_cell(*frontier.get(i).unwrap()).unwrap().distance_to(&self.get_cell(end).unwrap()) {
+                                            frontier.insert(i, neighbor.unwrap());
+                                            added.push(neighbor.unwrap().index);
+                                            break;
+                                        }
+                                    }
+                                    frontier.push_back(neighbor.unwrap());
+                                    added.push(neighbor.unwrap().index);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            //println!("Not Found after {} cells", count);
+            0
         }
     }
 }
@@ -312,18 +424,41 @@ mod puzzle_state {
     use super::cell;
     use super::neighbor;
     use super::flow;
+    use std::cmp::Ordering;
+    use std::f64;
 
-    #[derive(Debug, Clone)]
+    #[derive(Clone, Eq, PartialEq, Debug)]
     pub struct PuzzleState {
         // TODO: remove pub modifier
         pub puzzle: puzzle::Puzzle,
-        // TODO: remove pub modifier
-        pub children: Vec<PuzzleState>,
+        pub generation: u32,
+    }
+
+    impl Ord for PuzzleState {
+        fn cmp(&self, other: &PuzzleState) -> Ordering {
+            let res: Ordering =
+                if self.h() > other.h() {
+                    Ordering::Less
+                } else if self.h() < other.h() {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
+                };
+
+            res
+        }
+    }
+
+    // `PartialOrd` needs to be implemented as well.
+    impl PartialOrd for PuzzleState {
+        fn partial_cmp(&self, other: &PuzzleState) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
     }
 
     impl PuzzleState{
         // Create a child PuzzleState for each possible move for the next endpoint to extend
-        pub fn create_children(&mut self) {
+        pub fn create_children(&self) -> Vec<PuzzleState> {
             let endpoint_id = self.get_endpoint_to_extend();
             let endpoint_cell = self.puzzle.get_cell(endpoint_id).unwrap();
             let flow_id = endpoint_cell.flow_id_1.unwrap();
@@ -335,6 +470,8 @@ mod puzzle_state {
                 } else {
                     1
                 };
+
+            let mut children: Vec<PuzzleState> = Vec::new();
 
             if self.puzzle.is_hex {
                 for n_index in 0..neighbor::HEX_NEIGHBORS.len() {
@@ -348,17 +485,20 @@ mod puzzle_state {
                             continue;
                         }
                         let mut child = self.clone();
+                        child.generation += 1;
 
                         // Update the child
                         let mut cell_to_move_to = child.puzzle.get_cell_mut(n_id).unwrap();
                         cell_to_move_to.flow_id_1 = Some(flow::FlowId {index: flow_id.index});
                         cell_to_move_to.is_endpoint = true;
 
+                        child.puzzle.get_cell_mut(child.puzzle.get_flow(flow_id).unwrap().endpoints[endpoint_index].unwrap()).unwrap().is_endpoint = false;
+
                         let child_flow = child.puzzle.get_flow_mut(flow_id).unwrap();
                         child_flow.update_endpoint(endpoint_index, Some(cell::CellId{index: n_id.index}));
 
                         // Update this with the new child
-                        self.children.push(child);
+                        children.push(child);
                     }
                 };
             } else {
@@ -372,20 +512,38 @@ mod puzzle_state {
                     // Well, the second part might not be necessary, but it probably helps
                     if !self.puzzle.get_cell(n_id).unwrap().is_occupied(Some(neighbor::SQUARE_NEIGHBORS[n_index])) {
                         let mut child = self.clone();
+                        child.generation += 1;
+
                         let mut cell_to_move_to = child.puzzle.get_cell_mut(n_id).unwrap();
-                        cell_to_move_to.flow_id_1 = Some(flow::FlowId {index: flow_id.index});
-                        cell_to_move_to.is_endpoint = true;
+
+                        if cell_to_move_to.is_bridge {
+                            if n_index == neighbor::TOP || n_index == neighbor::BOTTOM {
+                                cell_to_move_to.flow_id_1 = Some(flow::FlowId {index: flow_id.index});
+                                cell_to_move_to.is_endpoint = true;
+                            } else {
+                                cell_to_move_to.flow_id_2 = Some(flow::FlowId {index: flow_id.index});
+                                cell_to_move_to.is_endpoint = true;
+                            }
+                        } else {
+                            cell_to_move_to.flow_id_1 = Some(flow::FlowId {index: flow_id.index});
+                            cell_to_move_to.is_endpoint = true;
+                        }
+
+
+                        child.puzzle.get_cell_mut(child.puzzle.get_flow(flow_id).unwrap().endpoints[endpoint_index].unwrap()).unwrap().is_endpoint = false;
 
                         let child_flow = child.puzzle.get_flow_mut(flow_id).unwrap();
                         child_flow.update_endpoint(endpoint_index, Some(cell::CellId{index: n_id.index}));
-                        self.children.push(child);
+
+                        children.push(child);
                     }
                 };
             }
+
+            children
         }
 
-        // Not currently used (I think)
-        pub fn num_possible_children (self) -> usize {
+        pub fn num_possible_children (&self) -> usize {
             let endpoint_id = self.get_endpoint_to_extend();
             let endpoint_cell = self.puzzle.get_cell(endpoint_id).unwrap();
             endpoint_cell.num_open_neighbors(&self.puzzle)
@@ -396,18 +554,166 @@ mod puzzle_state {
         }
 
         // Basically, find the endpoint with the fewest opoen neighbors (possibilities) and return that one
-        fn get_endpoint_to_extend(&self) -> cell::CellId {
+        pub fn get_endpoint_to_extend(&self) -> cell::CellId {
             let possible_endpoints = self.puzzle.get_endpoints_for_incomplete_flows();
             let mut min_open = 7;
             let mut min_open_cell_id = cell::CellId{index: 999};
-            for cell_id in possible_endpoints {
-                let cell = self.puzzle.get_cell(cell_id);
+            for cell_id in &possible_endpoints {
+                let cell = self.puzzle.get_cell(*cell_id);
                 if cell.unwrap().num_open_neighbors(&self.puzzle) < min_open {
                     min_open = cell.unwrap().num_open_neighbors(&self.puzzle);
-                    min_open_cell_id = cell_id;
+                    min_open_cell_id = *cell_id;
                 }
             }
+
+            if min_open_cell_id.index == 999 {
+                panic!("No cell to move found!");
+            }
+
+            if min_open != 1 {
+                // Determine if there is a neighbor which only has one open neighbor. This is a forced move
+                for cell_id in &possible_endpoints {
+                    let cell: cell::Cell = *self.puzzle.get_cell(*cell_id).unwrap();
+                    for n_index in &cell.neighbors {
+                        if n_index.is_some() {
+                            let neighbor: cell::Cell = *self.puzzle.get_cell(n_index.unwrap()).unwrap();
+                            if !neighbor.is_fully_occupied() && neighbor.num_open_neighbors(&self.puzzle) == 1 {
+                                return *cell_id;
+                            }
+                        }
+                    }
+                }
+            }
+
             min_open_cell_id
+        }
+
+        // Magic numbers galore!
+        pub fn h(&self) -> f64 {
+            if self.is_complete() {
+                return f64::MAX;
+            }
+
+            // Detect dead ends
+            for i in 0..self.puzzle.num_cells() {
+                let cell = self.puzzle.get_cell(cell::CellId{index: i}).unwrap();
+                if !cell.is_fully_occupied() && cell.num_open_neighbors(&self.puzzle) == 1 {
+                    let mut has_endpoint_neighbor = false;
+                    for n_index in cell.neighbors.iter() {
+                        if n_index.is_some() {
+                            if self.puzzle.get_cell(n_index.unwrap()).unwrap().is_endpoint {
+                                has_endpoint_neighbor = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if !has_endpoint_neighbor {
+                        return 0.0;
+                    }
+                }
+            }
+
+            // Check for "pools"
+            for i in 0..self.puzzle.num_cells() {
+                let cell = self.puzzle.get_cell(cell::CellId{index: i}).unwrap();
+                if !cell.is_bridge && cell.is_fully_occupied() && cell.num_open_neighbors(&self.puzzle) <= 1 {
+                    let mut same_flow_count = 0;
+                    for n_index in cell.neighbors.iter() {
+                        if n_index.is_some() {
+                            let neighbor = self.puzzle.get_cell(n_index.unwrap()).unwrap();
+                            if !neighbor.is_bridge && neighbor.is_fully_occupied() && neighbor.flow_id_1.unwrap().index == cell.flow_id_1.unwrap().index {
+                                same_flow_count += 1;
+                            }
+                        }
+                    }
+                    if same_flow_count > 2 {
+                        return 0.0;
+                    }
+                }
+            }
+
+            let pc: f64;
+            if self.puzzle.is_hex {
+                pc = self.num_possible_children() as f64 / neighbor::HEX_NEIGHBORS.len() as f64;
+            } else {
+                pc = self.num_possible_children() as f64 / neighbor::SQUARE_NEIGHBORS.len() as f64;
+            }
+
+
+
+            /*let mut conn_components: Vec<Vec<usize>> = vec![];
+            let mut visited: Vec<usize> = vec![];
+
+            'out: for i in 0..self.puzzle.num_cells() {
+                if visited.contains(&i) {
+                    continue 'out;
+                }
+                let mut to_visit = vec![i];
+
+                let mut new_ccv = vec![];
+
+                while to_visit.len() > 0 {
+                    let j = to_visit.pop().unwrap();
+                    let cell = self.puzzle.get_cell(cell::CellId { index: j }).unwrap();
+                    visited.push(j);
+
+                    if !cell.is_fully_occupied() {
+                        new_ccv.push(j);
+                        for n_index in &cell.neighbors {
+                            if n_index.is_some() && !visited.contains(&n_index.unwrap().index){
+                                to_visit.push(n_index.unwrap().index);
+                            }
+                        }
+                    }
+                }
+
+                conn_components.push(new_ccv);
+            }
+
+            'out: for i in 0..self.puzzle.num_flows() {
+                let flow = self.puzzle.get_flow(flow::FlowId{index: i}).unwrap();
+                if !flow.is_complete(&self.puzzle) {
+                    for ccv in &conn_components {
+                        let mut e1 = false;
+                        let mut e2 = false;
+                        for n_index in &self.puzzle.get_cell(flow.endpoints[0].unwrap()).unwrap().neighbors {
+                            if n_index.is_some() && !ccv.contains(&n_index.unwrap().index){
+                                e1 = true;
+                            }
+                        }
+                        for n_index in &self.puzzle.get_cell(flow.endpoints[1].unwrap()).unwrap().neighbors {
+                            if n_index.is_some() && !ccv.contains(&n_index.unwrap().index){
+                                e2 = true;
+                            }
+                        }
+                        if e1 && e2 {
+                            continue 'out;
+                        }
+                    }
+                    dbg!(conn_components);
+                    dbg!(flow);
+                    return 0.0;
+                }
+            }*/
+
+
+
+
+            // Code to see if flows are unsolvable - return 0 if unsolvable
+//            if self.puzzle.num_open_cells() > 80 && self.puzzle.num_open_cells() < 20 {
+//                //let start = PreciseTime::now();
+//
+//                for flow in self.puzzle.flows.iter() {
+//                    if !flow.is_complete(&self.puzzle) && self.puzzle.path_exists(flow.endpoints[0].unwrap(), flow.endpoints[1].unwrap()) == 0 {
+//                        println!("No path for {}!", flow.letter);
+//                        return 0.0;
+//                    }
+//                }
+//            }
+
+
+            pc
         }
     }
 }
@@ -476,11 +782,10 @@ fn solve_puzzle(filename: &str) {
                 let is_endpoint = ALPHA_UPPER.contains(c);
 
                 // Create the new cell
-                let cell_id: cell::CellId = puzzle.new_cell(is_endpoint, None, is_bridge, is_hex);
+                let cell_id: cell::CellId = puzzle.new_cell(is_endpoint, None, is_bridge, is_hex, row, col);
 
                 // Create a key for the map from the coordinates of the cell, and insert it into the map with the new cell id
-                let mut key: String = String::from(col.to_string());
-                key.push_str(row.to_string().as_ref());
+                let key: String = format!("{}-{}", col, row);
                 cell_map.insert(key, cell_id.index);
 
                 // Update the max size variables
@@ -569,10 +874,8 @@ fn solve_puzzle(filename: &str) {
 
                 // Recreate the map keys for the two neighbors
                 neighbors += 1;
-                let mut key1: String = String::from(col1.to_string());
-                key1.push_str(row1.to_string().as_ref());
-                let mut key2: String = String::from(col2.to_string());
-                key2.push_str(row2.to_string().as_ref());
+                let key1: String = format!("{}-{}", col1, row1);
+                let key2: String = format!("{}-{}", col2, row2);
 
                 // Update the cells with information regarding their newly found neighbor
                 puzzle.get_cell_mut(cell::CellId { index: *cell_map.get(&key1).unwrap() }).unwrap().set_neighbor(neighbor1, cell::CellId { index: *cell_map.get(&key2).unwrap() });
@@ -589,22 +892,44 @@ fn solve_puzzle(filename: &str) {
     println!("Number of neighbors: {}\n\n", neighbors);
 
     // Create the initial puzzle state with no children
-    let mut ps = puzzle_state::PuzzleState {puzzle: puzzle, children: Vec::new()};
+    let ps = puzzle_state::PuzzleState {puzzle: puzzle, generation: 0};
+
     // Solve it. Just like that. It's done!
-    let res = recursively_solve(&mut ps, 1);
+    let start = PreciseTime::now();
+    let res = greedy_best_first(ps);
+    let end = PreciseTime::now();
+
+    if res.is_none() {
+        println!("Uh oh, no solution!");
+        println!("Failed in {} seconds!", start.to(end));
+        return;
+    }
+
+    let res_ps = res.unwrap();
 
     // Resplit the input, because why not?
     // Because Rust, that's why
     let mut split_input2: Vec<&str> = input.split("\n").collect();
     split_input2.remove(0);
+    let mut bridge_addendum = String::new();
+    let mut bridge_count = 0;
     let mut cell = 0;
     // Loop over it again, printing everything out
     // Unless it is a cell character. Then replace it with the appropriate letter from the solved puzzle
     for line in &split_input2 {
         for c in line.chars() {
             if ALPHA_UPPER.contains(c) || c == '.' || c == '*' {
-                // TODO: figure out how to display bridge solutions
-                print!("{}", res.unwrap().puzzle.get_flow(res.unwrap().puzzle.get_cell(cell::CellId{index:cell}).unwrap().flow_id_1.unwrap()).unwrap().letter);
+                if c == '*' {
+                    bridge_count += 1;
+                    bridge_addendum = format!("{}\nBridge {}: Vertical is {}, horizontal is {}\n", bridge_addendum, bridge_count, res_ps.puzzle.get_flow(res_ps.puzzle.get_cell(cell::CellId{index:cell}).unwrap().flow_id_1.unwrap()).unwrap().letter, res_ps.puzzle.get_flow(res_ps.puzzle.get_cell(cell::CellId{index:cell}).unwrap().flow_id_2.unwrap()).unwrap().letter);
+                    print!("{}", bridge_count);
+                } else {
+                    if res_ps.puzzle.get_cell(cell::CellId{index:cell}).unwrap().flow_id_1.is_some() {
+                        print!("{}", res_ps.puzzle.get_flow(res_ps.puzzle.get_cell(cell::CellId { index: cell }).unwrap().flow_id_1.unwrap()).unwrap().letter);
+                    } else {
+                        print!("{}", c);
+                    }
+                }
                 cell +=1;
             } else {
                 print!("{}", c);
@@ -613,34 +938,73 @@ fn solve_puzzle(filename: &str) {
         print!("\n");
     }
 
+    println!("{}\n", bridge_addendum);
+
+    println!("Finished in {} seconds!", start.to(end));
     // `file` goes out of scope, and then gets closed
 }
 
-// Actually solve the puzzle, unlike that other, slacker function
-// Given a puzzle state, generate children and recursively solve these children until
-// a complete puzzle state is found
-fn recursively_solve(ps: &mut puzzle_state::PuzzleState, depth: usize) -> Option<&puzzle_state::PuzzleState> {
-    //println!("Depth: {}, number solved: {}", depth, ps.puzzle.num_complete());
-    if ps.is_complete() {
-        // We're done!
-        Some(ps)
-    } else {
-        // Generate the children
-        ps.create_children();
-        // Iterate through each
-        // TODO see about sorting prior to iteration
-        for child in ps.children.iter_mut() {
-            // Solve the child
-            let res = recursively_solve(child, depth+1);
-            // If it is not None, return the child result
-            if res.is_some() {
-                return res;
+fn greedy_best_first(ps: puzzle_state::PuzzleState) -> Option<puzzle_state::PuzzleState> {
+    let mut frontier: BinaryHeap<puzzle_state::PuzzleState> = BinaryHeap::new();
+
+    frontier.push(ps);
+
+    // Stats
+    let mut frontier_max = 0;
+    let mut states_visited = 0;
+    let mut children_discarded = 0;
+    let mut states_created = 1;
+    let mut max_flows_completed = 0;
+
+    let mut latest: Option<puzzle_state::PuzzleState> = None;
+
+    while frontier.len() > 0 {
+        states_visited += 1;
+        frontier_max = max(frontier_max, frontier.len());
+
+        let curr_state = frontier.pop().unwrap();
+
+        max_flows_completed = max(max_flows_completed, curr_state.puzzle.num_complete());
+
+        let mut children = curr_state.create_children();
+        states_created += children.len();
+
+        while children.len() > 0 {
+            let child = children.pop().unwrap();
+            if child.is_complete() {
+                println!("---STATS---");
+                println!("States visited: {}\nMax Frontier Size: {}\nChildren Discarded: {}\nFinal Frontier: {}\nStates created: {}\n", states_visited, frontier_max, children_discarded, frontier.len(), states_created);
+
+                return Some(child)
+            } else if child.h() > 0.0{
+                frontier.push(child);
+            } else {
+                children_discarded += 1;
             }
-            // TODO see about killing children that return None. Might alleviate the memory issues :)
         }
 
-        None
+        if states_visited % 10000 == 0 {
+            println!("---STATS AT {}---", states_visited);
+            println!("States visited: {}\nMax Frontier Size: {}\nChildren Discarded: {}\nCurrent Frontier: {}\nStates created: {}",
+                     states_visited, frontier_max, children_discarded, frontier.len(), states_created);
+            println!("Num Cells Open: {}\nMax Flows Complete: {}\n",
+                     curr_state.puzzle.num_open_cells(), max_flows_completed);
+            max_flows_completed = 0;
+            //println!("Latest h(): {}", curr_state.h());
+            //return Some(curr_state);
+        }
+
+        latest = Some(curr_state);
     }
+
+    println!("---STATS---");
+    println!("States visited: {}\nMax Frontier Size: {}\nChildren Discarded: {}\nFinal Frontier: {}\nStates created: {}\n", states_visited, frontier_max, children_discarded, frontier.len(), states_created);
+
+
+    println!("Uh oh, no solution!");
+
+
+    latest
 }
 
 // Handle arguments
