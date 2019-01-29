@@ -14,6 +14,9 @@ There are two versions of this solver:
     2. Starting with the flow with the fewest options, extend that flow for each option and recursively solve the new board
     3. If reach an impossible to solve board, return and continue with other children
 8. There are some optimizations, such as favoring children which stay on the most direct route, checking for isolated cells, favoring children with the most flows complete, etc.
+9. Creates cool gifs: 
+<img width="200" height="200" src="https://raw.githubusercontent.com/samgoldman/flowsolver/master/old_python/RegularPack9x9_30.gif" />
+
 ### Rust
 0. Located everywhere else (prebuilt windows exe is in ./build)
 1. Supports standard, hex, warp and bridge puzzles
@@ -33,6 +36,8 @@ There are two versions of this solver:
     4. Add the children (after checking if they are solvable) to a max heap, which uses a heuristic to determine the order they should be visited in
         1. The heuristic prioritizes puzzles with fewer open cells, fewer children, and more flows solved
     5. Loop through each puzzle on the heap with steps 3-5 until a complete puzzle is found
+8. Plenty of optimizations!
+9. No gifs. :(
     
 ## File Format for Rust Puzzle Input
 1. The file must be a .txt file
