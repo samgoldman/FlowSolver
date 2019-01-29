@@ -16,20 +16,23 @@ There are two versions of this solver:
 8. There are some optimizations, such as favoring children which stay on the most direct route, checking for isolated cells, favoring children with the most flows complete, etc.
 ### Rust
 0. Located everywhere else (prebuilt windows exe is in ./build)
-1. Supports standard, hex, warp puzzles, with potential support for bridges built in
+1. Supports standard, hex, warp and bridge puzzles
 2. Will not scan puzzle screenshots (yes, you have to do some of the work, see section below)
 3. Does not require the python OpenCV modules (it's not even in python, why would it need a python module)
 4. A single filename must be passed when running flow_free_solver_rust.exe
-5. Some (maybe) witty comments here and there
-6. Has been tested with 5x5 standard, 5x5 hex, and a small warps.
-    1. Technically, it was also tested on the 9x9 standard and a larger warps. Proceed with caution.
-    2. Really, evidently rust doesn't have recursion protection. One of these tests ended with my computer in safe mode, the other ended with a blue screen.
+5. Some comments here and there
+6. Has been tested on:
+    1. 12x12 standard boards (that one take 20 seconds)
+    2. 14x14 warps (ranges from 2 seconds to ~10 hours - yeah, that's a wild range. These are the most tested because I often used this project to solve problems I'm stuck on)
+    3. Small hexes (note: has been tested on a large hex, with so far inconclusive results. I'd test it on others, but hex puzzles are a PAIN to convert into the specified format)
+    4. Small bridges (just haven't gotten around to testing many)
 7. General design principle: Rust is simultaneously awesome and the bane of my existence
     1. Convert each puzzle to a series of cells
     2. Link each cell with its designated neighbors
     3. Starting with the endpoint with the fewest options, generate all possible children based on that endpoint
-    4. Recursively solve on each child (like in the python version) until a solution is found (or the resources of the computer give up)
-8. There are few optimizations currently implemented (see 6), although even fewer are currently planned
+    4. Add the children (after checking if they are solvable) to a max heap, which uses a heuristic to determine the order they should be visited in
+        1. The heuristic prioritizes puzzles with fewer open cells, fewer children, and more flows solved
+    5. Loop through each puzzle on the heap with steps 3-5 until a complete puzzle is found
     
 ## File Format for Rust Puzzle Input
 1. The file must be a .txt file
@@ -114,6 +117,6 @@ C-.-.-.-D
 .-C-B-E-.
 ```
 
-Note that these are not layed out like hexes. Hex puzzles must be flattened into rows. The (shitty) white lines in the image below show how rows are formed. Due to this, the `-` neighbor character alternates which neighbor relationship it refers to. Also note how in the top row, there are cells skipped. This is acceptable for all types of puzzles.
+Note that these are not laid out like hexes. Hex puzzles must be flattened into rows. The (shitty) white lines in the image below show how rows are formed. Due to this, the `-` neighbor character alternates which neighbor relationship it refers to. Also note how in the top row, there are cells skipped. This is acceptable for all types of puzzles.
 
 <img width="360" height="740" src="https://raw.githubusercontent.com/samgoldman/flowsolver/master/puzzles/hex/Classic5x5_1.jpg" />
