@@ -30,9 +30,8 @@ const HORIZONTAL: usize = 1;
 #[derive(Debug, Eq, Clone)]
 pub struct Flow {
     pub id: usize,
-    pub endpoints: [Option<CellId>; 2],
-    pub complete: bool,
-    pub letter: char,
+    endpoints: [Option<CellId>; 2],
+    letter: char,
 }
 impl PartialEq for Flow {
     fn eq(&self, _other: &Flow) -> bool {
@@ -42,13 +41,26 @@ impl PartialEq for Flow {
 impl Flow {
     // Update the endpoint at the given index to the given cellID
     // endpoint should be 0 or 1
-    pub fn update_endpoint(&mut self, endpoint: usize, cell_id: Option<CellId>) {
-        self.endpoints[endpoint] = cell_id;
+    pub fn update_endpoint(&mut self, endpoint: usize, cell_id: CellId) {
+        self.endpoints[endpoint] = Some(cell_id);
     }
 
     // Return true if this flow's endpoints are neighbors
     pub fn is_complete(&self, puzzle: &Puzzle) -> bool{
-        puzzle.get_cell(self.endpoints[0].unwrap()).unwrap().is_neighbor(&self.endpoints[1].unwrap())
+        puzzle.get_cell(self.get_endpoint(0)).unwrap().is_neighbor(&self.get_endpoint(1))
+    }
+
+    pub fn get_endpoints(&self) -> [CellId; 2] {
+        [self.endpoints[0].unwrap(), self.endpoints[1].unwrap()]
+    }
+
+    pub fn get_endpoint(&self, i: usize) -> CellId {
+        self.get_endpoints()[i]
+    }
+
+    // Getter for attribute 'letter'
+    pub fn get_letter(&self) -> char {
+        self.letter
     }
 }
 
@@ -168,7 +180,6 @@ impl Puzzle {
         self.flows.push(Flow {
             id: next_index,
             endpoints: [None; 2],
-            complete: false,
             letter,
         });
 
@@ -194,7 +205,7 @@ impl Puzzle {
                     } else {
                         let flow = self.get_cell(CellId{index:cell}).unwrap().flow_id;
                         if flow.is_some() {
-                            print!("{}", self.get_flow(flow.unwrap()).unwrap().letter);
+                            print!("{}", self.get_flow(flow.unwrap()).unwrap().get_letter());
                         } else {
                             print!("{}", c);
                         }
@@ -239,8 +250,8 @@ impl Puzzle {
 
         // If the flow is incomplete, push its two endpoints onto the vector
         for flow in self.flows.iter().filter(|flow| !flow.is_complete(self)) {
-            endpoints.push(flow.endpoints[0].unwrap());
-            endpoints.push(flow.endpoints[1].unwrap());
+            endpoints.push(flow.get_endpoint(0));
+            endpoints.push(flow.get_endpoint(1));
         }
 
         endpoints
@@ -258,7 +269,7 @@ impl Puzzle {
         let flow = self.get_flow(flow_id).unwrap();
 
         let endpoint_index =
-            if flow.endpoints[0].unwrap().index == endpoint_id.index {
+            if flow.get_endpoint(0).index == endpoint_id.index {
                 0
             } else {
                 1
@@ -277,7 +288,7 @@ impl Puzzle {
             child.get_cell_mut(child.get_flow(flow_id).unwrap().endpoints[endpoint_index].unwrap()).unwrap().is_endpoint = false;
 
             let child_flow = child.get_flow_mut(flow_id).unwrap();
-            child_flow.update_endpoint(endpoint_index, Some(CellId { index: n_id.index }));
+            child_flow.update_endpoint(endpoint_index, CellId { index: n_id.index });
 
             children.push(child);
         }
@@ -477,8 +488,8 @@ impl Puzzle {
                     continue;
                 }
 
-                let endpoint_0 = self.get_cell(flow.endpoints[0].unwrap()).unwrap();
-                let endpoint_1 = self.get_cell(flow.endpoints[1].unwrap()).unwrap();
+                let endpoint_0 = self.get_cell(flow.get_endpoint(0)).unwrap();
+                let endpoint_1 = self.get_cell(flow.get_endpoint(1)).unwrap();
 
                 let mut res = false;
 
@@ -506,8 +517,8 @@ impl Puzzle {
             if flow.is_complete(&self) {
                 continue;
             }
-            let endpoint_0 = self.get_cell(flow.endpoints[0].unwrap()).unwrap();
-            let endpoint_1 = self.get_cell(flow.endpoints[1].unwrap()).unwrap();
+            let endpoint_0 = self.get_cell(flow.get_endpoint(0)).unwrap();
+            let endpoint_1 = self.get_cell(flow.get_endpoint(1)).unwrap();
 
             'region_loop_2:for region in connected_component_sets.iter() {
                 let mut res = false;
@@ -534,9 +545,9 @@ impl Puzzle {
 
     // Magic numbers galore! (once upon a time)
     // Anyway, return the score of a board
-    pub fn h(&self) -> i64 {
+    pub fn h(&self) -> usize {
         // Modified from https://mzucker.github.io/2016/08/28/flow-solver.html (incorporates parts of g() and h() into one)
-        (self.num_complete()*2) as i64 - (self.num_open_cells() - self.num_possible_children()) as i64
+        1000  - self.num_open_cells() + self.num_complete()*2 - self.num_possible_children()
     }
 }
 
@@ -619,9 +630,9 @@ fn solve_puzzle(filename: &str) {
                         // Check if a flow with the current letter already exists
                         // If it does, update hte appropriate values
                         for flow in puzzle.flows.iter_mut() {
-                            if flow.letter == c {
+                            if flow.get_letter() == c {
                                 flow_exists = true;
-                                flow.update_endpoint(1, Some(cell_id));
+                                flow.update_endpoint(1, cell_id);
                                 flow_id_1 = Some(FlowId {index: count});
                             }
                             count += 1;
@@ -632,7 +643,7 @@ fn solve_puzzle(filename: &str) {
                             let flow_id = puzzle.new_flow(c);
                             let flow = puzzle.get_flow_mut(flow_id).unwrap();
                             flow_id_1 = Some(flow_id);
-                            flow.update_endpoint(0, Some(cell_id));
+                            flow.update_endpoint(0, cell_id);
                         }
 
                         // Update the new cell with the appropriate flow
