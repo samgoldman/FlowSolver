@@ -12,10 +12,6 @@ use std::collections::BinaryHeap;
 use time::PreciseTime;
 use std::cmp::Ordering;
 
-const ALPHA_UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-const BASE_SCORE: usize = 1000;
-
 const NON_EXISTENT_CELL_ID: usize = 999;
 const MAX_NEIGHBORS: usize = 6;
 
@@ -61,8 +57,8 @@ pub struct FlowId {
     pub index: usize,
 }
 impl PartialEq for FlowId {
-    fn eq(&self, _other: &FlowId) -> bool {
-        false
+    fn eq(&self, other: &FlowId) -> bool {
+        self.index.eq(&other.index)
     }
 }
 
@@ -73,13 +69,9 @@ pub struct Cell {
     pub flow_id: Option<FlowId>,
     pub neighbors: Vec<CellId>,
     pub is_hex: bool,
-    pub x: usize,
-    pub y: usize,
 }
 impl PartialEq for Cell {
-    fn eq(&self, _other: &Cell) -> bool {
-        false
-    }
+    fn eq(&self, _other: &Cell) -> bool {false}
 }
 impl Cell {
     // Update the given neighbor
@@ -112,8 +104,8 @@ pub struct CellId {
     pub index: usize,
 }
 impl PartialEq for CellId {
-    fn eq(&self, _other: &CellId) -> bool {
-        false
+    fn eq(&self, other: &CellId) -> bool {
+        self.index.eq(&other.index)
     }
 }
 
@@ -147,15 +139,13 @@ impl Puzzle {
     }
 
     // Crate a new cell
-    pub fn new_cell(&mut self, is_endpoint: bool, flow_id: Option<FlowId>, is_hex: bool, x: usize, y: usize) -> CellId {
+    pub fn new_cell(&mut self, is_endpoint: bool, flow_id: Option<FlowId>, is_hex: bool) -> CellId {
         let next_index = self.num_cells();
         self.cells.push(Cell {
             is_endpoint,
-            flow_id: flow_id,
+            flow_id,
             neighbors: vec![],
             is_hex,
-            x,
-            y,
         });
 
         CellId { index: next_index }
@@ -195,15 +185,16 @@ impl Puzzle {
         // Unless it is a cell character. Then replace it with the appropriate letter from the solved puzzle
         for line in &split_input {
             for c in line.chars() {
-                if ALPHA_UPPER.contains(c) || c == '.' || c == '*' {
+                if c.is_ascii_uppercase() || c == '.' || c == '*' {
                     if c == '*' {
                         bridge_count += 1;
                         bridge_addendum = format!("{}\nBridge {}: Vertical is {}, horizontal is {}\n", bridge_addendum, bridge_count, self.get_flow(self.get_cell(CellId{index:cell}).unwrap().flow_id.unwrap()).unwrap().letter, self.get_flow(self.get_cell(CellId{index:cell+1}).unwrap().flow_id.unwrap()).unwrap().letter);
                         cell+=1;
                         print!("{}", bridge_count);
                     } else {
-                        if self.get_cell(CellId{index:cell}).unwrap().flow_id.is_some() {
-                            print!("{}", self.get_flow(self.get_cell(CellId { index: cell }).unwrap().flow_id.unwrap()).unwrap().letter);
+                        let flow = self.get_cell(CellId{index:cell}).unwrap().flow_id;
+                        if flow.is_some() {
+                            print!("{}", self.get_flow(flow.unwrap()).unwrap().letter);
                         } else {
                             print!("{}", c);
                         }
@@ -543,9 +534,9 @@ impl Puzzle {
 
     // Magic numbers galore! (once upon a time)
     // Anyway, return the score of a board
-    pub fn h(&self) -> usize {
+    pub fn h(&self) -> i64 {
         // Modified from https://mzucker.github.io/2016/08/28/flow-solver.html (incorporates parts of g() and h() into one)
-        BASE_SCORE - self.num_open_cells() + self.num_complete()*2 - self.num_possible_children()
+        (self.num_complete()*2 - self.num_open_cells() - self.num_possible_children()) as i64
     }
 }
 
@@ -607,20 +598,20 @@ fn solve_puzzle(filename: &str) {
         let mut col = 0; // Track the current column
         for c in line.chars() {
             // Check if the character is a cell character
-            if ALPHA_UPPER.contains(c) || c == '.' || c == '*' {
+            if c.is_ascii_uppercase() || c == '.' || c == '*' {
                 let is_bridge = c == '*'; // Asterisks are bridges
-                let is_endpoint = ALPHA_UPPER.contains(c);
+                let is_endpoint = c.is_ascii_uppercase();
 
                 if !is_bridge {
                     // Create the new cell
-                    let cell_id: CellId = puzzle.new_cell(is_endpoint, None, is_hex, row, col);
+                    let cell_id: CellId = puzzle.new_cell(is_endpoint, None, is_hex);
 
                     // Create a key for the map from the coordinates of the cell, and insert it into the map with the new cell id
                     let key: String = format!("{}-{}", col, row);
                     cell_map.insert(key, cell_id.index);
 
                     // If the cell is an endpoint, either create a new flow if needed or update an existing one
-                    if ALPHA_UPPER.contains(c) {
+                    if c.is_ascii_uppercase() {
                         let mut flow_id_1 = None;
                         let mut flow_exists = false;
                         let mut count = 0;
@@ -649,8 +640,8 @@ fn solve_puzzle(filename: &str) {
                     }
                 } else {
                     // Bridges can't have a flow to set up, but do have an extra cell associated with them
-                    let cell_id1: CellId = puzzle.new_cell(is_endpoint, None, is_hex, row, col);
-                    let cell_id2: CellId = puzzle.new_cell(is_endpoint, None, is_hex, row, col);
+                    let cell_id1: CellId = puzzle.new_cell(is_endpoint, None, is_hex);
+                    let cell_id2: CellId = puzzle.new_cell(is_endpoint, None, is_hex);
 
                     let key1: String = format!("{}-{}--", col, row);
                     let key2: String = format!("{}-{}-|", col, row);
@@ -687,11 +678,10 @@ fn solve_puzzle(filename: &str) {
                             (col - 1, row, col + 1, row, HORIZONTAL)
                         }
                     } else if c == '/' {
-                        (col - 1, row + 1, col + 1, row - 1, HORIZONTAL)
+                        (col - 1, row + 1, col + 1, row - 1, HORIZONTAL) // These aren't really horizontal, but close enough, and it doesn't really matter
                     } else if c == '\\' {
                         (col - 1, row - 1, col + 1, row + 1, HORIZONTAL)
                     } else {
-                        // This is the '|' relationship: TOP-BOTTOM
                         // If the row is greater than the max height, this is warped relationship. The neighbor is in the first row.
                         if row > max_cell_row {
                             (col, row - 1, col, 0, VERTICAL)
@@ -735,21 +725,18 @@ fn solve_puzzle(filename: &str) {
     println!("Number of flows: {}", puzzle.num_flows());
     println!("Number of neighbors: {}\n\n", neighbors);
 
-    // Solve it. Just like that. It's done!
     let start = PreciseTime::now();
+    // Solve it. Just like that. It's done!
     let res = greedy_best_first(puzzle);
     let end = PreciseTime::now();
 
     if res.is_none() {
         println!("Uh oh, no solution!");
         println!("Failed in {} seconds!", start.to(end));
-        return;
+    } else {
+        res.unwrap().print_self();
+        println!("Finished in {} seconds!", start.to(end));
     }
-
-    let res_ps = res.unwrap();
-    res_ps.print_self();
-
-    println!("Finished in {} seconds!", start.to(end));
 }
 
 // Not really sure if this is greedy best first any more, but I'm not changing the name now
@@ -862,7 +849,7 @@ fn greedy_best_first(puzzle: Puzzle) -> Option<Puzzle> {
 
         for child in children.iter() {
             child.print_self();
-            println!("Solvability: {}\n\n", child.is_solvable());
+            println!("Solvable: {}\n", child.is_solvable());
         }
     }
     None
