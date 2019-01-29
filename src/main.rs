@@ -536,7 +536,7 @@ impl Puzzle {
     // Anyway, return the score of a board
     pub fn h(&self) -> i64 {
         // Modified from https://mzucker.github.io/2016/08/28/flow-solver.html (incorporates parts of g() and h() into one)
-        (self.num_complete()*2 - self.num_open_cells() - self.num_possible_children()) as i64
+        (self.num_complete()*2) as i64 - (self.num_open_cells() - self.num_possible_children()) as i64
     }
 }
 
