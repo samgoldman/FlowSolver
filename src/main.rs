@@ -11,6 +11,10 @@ use std::path::Path;
 use std::collections::BinaryHeap;
 use time::PreciseTime;
 use std::cmp::Ordering;
+use std::thread;
+use std::sync::{Arc, Mutex};
+
+const NUM_TRHEADS: usize = 100;
 
 const NON_EXISTENT_CELL_ID: usize = 999;
 const MAX_NEIGHBORS: usize = 6;
@@ -754,115 +758,55 @@ fn solve_puzzle(filename: &str) {
 // Solve the given PuzzleState, if possible. If not, return None
 fn greedy_best_first(puzzle: Puzzle) -> Option<Puzzle> {
     let mut frontier: BinaryHeap<Puzzle> = BinaryHeap::new(); // Puzzles to consider
+    let complete = false;
     frontier.push(puzzle);
 
-    // Stats
-    let mut frontier_max = 0;
-    let mut states_visited = 0;
-    let mut children_discarded = 0;
-    let mut states_created = 1;
-    let mut max_flows_completed = 0;
-    let mut discarded_no_children = 0;
-    let mut discarded_dead_end = 0;
-    let mut discarded_pools = 0;
-    let mut discarded_blocked = 0;
-    let mut discarded_cc = 0;
+    let m_frontier = Arc::new(Mutex::new(frontier));
+    let m_complete = Arc::new(Mutex::new(complete));
 
-    let mut avg_num_flows_complete = 0;
-    let mut avg_num_cells_open = 0;
+    let mut handles = vec![];
+    for _ in 0..NUM_TRHEADS {
+        let m_frontier = Arc::clone(&m_frontier);
+        let m_complete = Arc::clone(&m_complete);
 
-    let mut latest: Option<Puzzle> = None;
+        let handle = thread::spawn(move || {
+            while *m_complete.lock().unwrap() == false && (*m_frontier.lock().unwrap()).len() > 0 {
+                let curr_state = m_frontier.lock().unwrap().pop().unwrap();
 
-    while frontier.len() > 0 {
-        states_visited += 1;
-        frontier_max = max(frontier_max, frontier.len());
+                let mut children = curr_state.create_children();
 
-        let curr_state = frontier.pop().unwrap();
+                // Evaluate each child
+                while children.len() > 0 {
+                    let child = children.pop().unwrap();
 
-        max_flows_completed = max(max_flows_completed, curr_state.num_complete());
-        avg_num_flows_complete += curr_state.num_complete();
-        avg_num_cells_open += curr_state.num_open_cells();
+                    // Yay! We're done! Print some stats and return
+                    if child.is_complete() {
+                        let mut complete = m_complete.lock().unwrap();
+                        *complete = true;
 
-        let mut children = curr_state.create_children();
-        states_created += children.len();
-
-        // Evaluate each child
-        while children.len() > 0 {
-            let child = children.pop().unwrap();
-
-            // Yay! We're done! Print some stats and return
-            if child.is_complete() {
-                println!("---STATS AT {}---", states_visited);
-                println!("States visited: {}\nMax Frontier Size: {}\nChildren Discarded: {}\nPercent Discarded: {}\nCurrent Frontier: {}\nStates created: {}",
-                         states_visited, frontier_max, children_discarded, (children_discarded as f64 / states_created as f64), frontier.len(), states_created);
-                println!("Num Cells Open: {}\nMax Flows Complete: {}", child.num_open_cells(), max_flows_completed);
-                println!("Discard Stats:\n\tNum children: {}\n\tDead end: {}\n\tPools: {}\n\tBlocked Flow: {}\n\tCC Failed: {}\n",
-                           (discarded_no_children as f64 / children_discarded as f64),
-                           (discarded_dead_end as f64 / children_discarded as f64),
-                           (discarded_pools as f64 / children_discarded as f64),
-                           (discarded_blocked as f64 / children_discarded as f64),
-                           (discarded_cc as f64 / children_discarded as f64));
-
-                return Some(child)
-            }
-            let solvable_status = child.is_solvable(); // Determine if child is solvable
-            // If solvable, add it to the list to consider
-            if solvable_status == 1 {
-                frontier.push(child);
-            } else { // Otherwise, update some stats and then forget about the child
-                children_discarded += 1;
-                if solvable_status == UNSOLVABLE_NO_CHILDREN {
-                    discarded_no_children += 1;
-                } else if solvable_status == UNSOLVABLE_DEAD_ENDS {
-                    discarded_dead_end += 1;
-                } else if solvable_status == UNSOLVABLE_POOLS {
-                    discarded_pools += 1;
-                } else if solvable_status == UNSOLVABLE_PATH_BLOCKED {
-                    discarded_blocked += 1;
-                } else if solvable_status == UNSOLVABLE_REGION {
-                    discarded_cc += 1;
+                        return Some(child);
+                    } else {
+                        // If solvable, add it to the list to consider
+                        if (&child).is_solvable() == 1 {
+                            let mut frontier = m_frontier.lock().unwrap();
+                            (*frontier).push(child);
+                        }
+                    }
                 }
             }
-        }
 
-        // Print some stats every so often to keep the user happy, and let them know that we're still chugging along
-        let skip = 10000;
-        if states_visited % skip == 0 {
-            println!("{}\t{}\t{:.4}\t{:.1}\t{}\t{:.4}", states_visited, frontier_max, (children_discarded as f64 / states_created as f64), avg_num_cells_open as f64 / skip as f64, max_flows_completed, avg_num_flows_complete as f64 / skip as f64);
-            max_flows_completed = 0;
-            avg_num_cells_open = 0;
-            avg_num_flows_complete = 0;
-        }
-
-        latest = Some(curr_state);
+            None
+        });
+        handles.push(handle);
     }
 
-    // Never want to get here - if we did, the solver failed
-    println!("---STATS AT {}---", states_visited);
-    println!("States visited: {}\nMax Frontier Size: {}\nChildren Discarded: {}\nPercent Discarded: {}\nCurrent Frontier: {}\nStates created: {}",
-             states_visited, frontier_max, children_discarded, (children_discarded as f64 / states_created as f64), frontier.len(), states_created);
-    println!("Max Flows Complete: {}",  max_flows_completed);
-    println!("Discard Stats:\n\tNum children: {}\n\tDead end: {}\n\tPools: {}\n\tBlocked Flow: {}\n\tCC Failed: {}\n",
-             (discarded_no_children as f64 / children_discarded as f64),
-             (discarded_dead_end as f64 / children_discarded as f64),
-             (discarded_pools as f64 / children_discarded as f64),
-             (discarded_blocked as f64 / children_discarded as f64),
-             (discarded_cc as f64 / children_discarded as f64));
-    println!("Uh oh, no solution!");
-
-    if latest.is_some() {
-        println!("Latest configuration:");
-        let l = latest.unwrap();
-        l.print_self();
-
-        println!("Latest children:");
-        let children = l.create_children();
-
-        for child in children.iter() {
-            child.print_self();
-            println!("Solvable: {}\n", child.is_solvable());
+    for handle in handles {
+        let res = handle.join().unwrap();
+        if res.is_some() {
+            return res;
         }
     }
+
     None
 }
 

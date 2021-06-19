@@ -3,7 +3,6 @@ import numpy as np
 import copy
 from Solver import solvePuzzle
 import time
-from ScreenShot import saveScreenshot
 import imageio
 import AStar
 
@@ -11,7 +10,7 @@ def main():
 	#puzzles = ["RegularPack5x5_1","RegularPack5x5_2","RegularPack7x7_1","RegularPack9x9_30","13x13Mania_1","13x13Mania_49","15x15Mania_1","ExtremePack12x12_30","RectanglePack_1"]
 	
 	#puzzles = ["RegularPack5x5_1","RegularPack5x5_2","RegularPack7x7_1","RegularPack9x9_30"]
-	puzzles = ["13x13Mania_49","ExtremePack12x12_30"]
+	puzzles = ["RegularPack5x5_1"]
 	for puzzle in puzzles:
 		start = time.time()
 		run(puzzle)
@@ -24,10 +23,10 @@ def run(puzzle_name=None):
 	solvedPuzzleImage1 = copy.deepcopy(puzzle)
 	solvedPuzzleImage2 = copy.deepcopy(puzzle)
 	
-	#cv2.imwrite(puzzle_name+"_gray.jpg",grayPuzzle)
+	cv2.imwrite(puzzle_name+"_gray.jpg",grayPuzzle)
 
 	res,thresh = cv2.threshold(grayPuzzle,30,255,cv2.THRESH_BINARY)
-	#cv2.imwrite(puzzle_name+"_thresh.jpg", thresh)
+	cv2.imwrite(puzzle_name+"_thresh.jpg", thresh)
 	
 	dim = dimsFromGrid(thresh, puzzle)
 	print(puzzle_name + ": " + str(dim))
