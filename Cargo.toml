@@ -2,10 +2,10 @@
 name = "flow_free_solver_rust"
 version = "0.1.0"
 authors = ["samgoldman <sgoldman216@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-time = "0.1.42"
+time = "0.3.9"
 
 [profile.dev]
 opt-level = 3

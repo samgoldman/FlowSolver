@@ -3,13 +3,12 @@ extern crate time;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::env;
-use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::collections::BinaryHeap;
-use time::PreciseTime;
+use time::Instant;
 use std::cmp::Ordering;
 
 const NON_EXISTENT_CELL_ID: usize = 999;
@@ -431,7 +430,7 @@ impl Puzzle {
                 // If a cell isn't added to an existing set, create a new region for it afterwards
                 let mut added_to_set = false;
                 // Check each of the neighbors
-                'neighbor_loop:for neighbor_id in curr_cell.neighbors.iter() {
+                for neighbor_id in curr_cell.neighbors.iter() {
                     // First, check if the neighbor is already in a region
                     // If it is, add this cell to that region
                     for ccs in preliminary_connected_component_sets.iter_mut() {
@@ -572,7 +571,7 @@ fn solve_puzzle(filename: &str) {
     let mut file = match File::open(&path) {
         // The 'description' method of 'io::Error' returns a string that describes the error
         Err(why) => panic!("couldn't open {}: {}", display,
-                           why.description()),
+                           why.to_string()),
         Ok(file) => file,
     };
 
@@ -580,7 +579,7 @@ fn solve_puzzle(filename: &str) {
     let mut input = String::new();
     match file.read_to_string(&mut input) {
         Err(why) => panic!("couldn't read {}: {}", display,
-                           why.description()),
+                           why.to_string()),
         Ok(_) => print!("{}:\n{}\n\n", display, input),
     }
 
@@ -736,17 +735,16 @@ fn solve_puzzle(filename: &str) {
     println!("Number of flows: {}", puzzle.num_flows());
     println!("Number of neighbors: {}\n\n", neighbors);
 
-    let start = PreciseTime::now();
+    let start = Instant::now();
     // Solve it. Just like that. It's done!
     let res = greedy_best_first(puzzle);
-    let end = PreciseTime::now();
 
     if res.is_none() {
         println!("Uh oh, no solution!");
-        println!("Failed in {} seconds!", start.to(end));
+        println!("Failed in {} seconds!", start.elapsed());
     } else {
         res.unwrap().print_self();
-        println!("Finished in {} seconds!", start.to(end));
+        println!("Finished in {} seconds!", start.elapsed());
     }
 }
 
@@ -867,7 +865,7 @@ fn greedy_best_first(puzzle: Puzzle) -> Option<Puzzle> {
 }
 
 // Handle arguments
-// Basically, yell a the user if they did something wrong. It's really a one sided argument
+// Basically, yell at the user if they did something wrong. It's really a one sided argument
 // If only it could handle my arguments with the borrow checker...
 fn main() {
     let args: Vec<String> = env::args().collect();
