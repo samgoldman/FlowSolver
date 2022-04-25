@@ -186,7 +186,7 @@ impl Puzzle {
     }
 
     pub fn print_self(&self) {
-        let mut split_input: Vec<&str> = self.print_string.split("\n").collect();
+        let mut split_input: Vec<&str> = self.print_string.split('\n').collect();
         split_input.remove(0);
         let mut bridge_addendum = String::new();
         let mut bridge_count = 0;
@@ -214,7 +214,7 @@ impl Puzzle {
                     print!("{}", c);
                 }
             }
-            print!("\n");
+            println!();
         }
         println!("{}\n", bridge_addendum);
     }
@@ -232,7 +232,7 @@ impl Puzzle {
     }
 
     pub fn num_complete(&self) -> usize {
-        self.flows.iter().filter(|flow| flow.is_complete(&self)).count()
+        self.flows.iter().filter(|flow| flow.is_complete(self)).count()
     }
 
     pub fn num_open_cells(&self) -> usize {
@@ -302,7 +302,7 @@ impl Puzzle {
             return 0;
         }
         let endpoint_cell = self.get_cell(endpoint_id).unwrap();
-        endpoint_cell.num_open_neighbors(&self)
+        endpoint_cell.num_open_neighbors(self)
     }
 
     // Basically, find the endpoint with the fewest open neighbors (possibilities) and return that one
@@ -317,8 +317,8 @@ impl Puzzle {
 
             // If this endpoint has fewer open neighbors than the current minimum,
             // set the current minimum to this endpoint
-            if cell.unwrap().num_open_neighbors(&self) < min_open {
-                min_open = cell.unwrap().num_open_neighbors(&self);
+            if cell.unwrap().num_open_neighbors(self) < min_open {
+                min_open = cell.unwrap().num_open_neighbors(self);
                 min_open_cell_id = *cell_id;
             }
         }
@@ -342,7 +342,7 @@ impl Puzzle {
 
                     // If the neighbor is open and has only one neighbor, the endpoint must be
                     // the next one to move, so return it
-                    if !neighbor.is_occupied() && neighbor.num_open_neighbors(&self) == 1 {
+                    if !neighbor.is_occupied() && neighbor.num_open_neighbors(self) == 1 {
                         return *cell_id;
                     }
                 }
@@ -368,7 +368,7 @@ impl Puzzle {
                 // Detect dead ends - an empty cell connected only to one other empty cell and no endpoints
                 // Any flow going into this would have no endpoints to connect to and no way to get out,
                 // So it is impossible to solve
-                if !cell.is_occupied() && cell.num_open_neighbors(&self) == 1 {
+                if !cell.is_occupied() && cell.num_open_neighbors(self) == 1 {
                     let mut has_endpoint_neighbor = false;
                     for n_index in cell.neighbors.iter() {
                         if self.get_cell(*n_index).unwrap().is_endpoint {
@@ -383,7 +383,7 @@ impl Puzzle {
                 }
 
                 // Check for "pools" - when a flow doubles back on itself - these are illegal and generally pesky
-                if cell.is_occupied() && cell.num_open_neighbors(&self) <= 1 {
+                if cell.is_occupied() && cell.num_open_neighbors(self) <= 1 {
                     let mut same_flow_count = 0;
                     for n_index in cell.neighbors.iter() {
                         let neighbor = self.get_cell(*n_index).unwrap();
@@ -483,7 +483,7 @@ impl Puzzle {
         'region_loop_1:for region in connected_component_sets.iter() {
             'flow_loop_1:for f in 0..self.num_flows() {
                 let flow = self.get_flow(FlowId {index: f}).unwrap();
-                if flow.is_complete(&self) {
+                if flow.is_complete(self) {
                     continue;
                 }
 
@@ -513,7 +513,7 @@ impl Puzzle {
         // Analyze each flow: both endpoints must have a neighboring region in common, otherwise connecting them is impossible
         'flow_loop_2:for f in 0..self.num_flows() {
             let flow = self.get_flow(FlowId {index: f}).unwrap();
-            if flow.is_complete(&self) {
+            if flow.is_complete(self) {
                 continue;
             }
             let endpoint_0 = self.get_cell(flow.get_endpoint(0)).unwrap();
@@ -571,7 +571,7 @@ fn solve_puzzle(filename: &str) {
     let mut file = match File::open(&path) {
         // The 'description' method of 'io::Error' returns a string that describes the error
         Err(why) => panic!("couldn't open {}: {}", display,
-                           why.to_string()),
+                           why),
         Ok(file) => file,
     };
 
@@ -579,16 +579,16 @@ fn solve_puzzle(filename: &str) {
     let mut input = String::new();
     match file.read_to_string(&mut input) {
         Err(why) => panic!("couldn't read {}: {}", display,
-                           why.to_string()),
+                           why),
         Ok(_) => print!("{}:\n{}\n\n", display, input),
     }
 
     // Split the input based on lines
-    let mut split_input: Vec<&str> = input.split("\n").collect();
+    let mut split_input: Vec<&str> = input.split('\n').collect();
     split_input.remove(0);
 
     // Check if the puzzle is a HEX puzzle
-    let puzzle_type: String = input.chars().skip(0).take(input.find("\n").unwrap()-1).collect();
+    let puzzle_type: String = input.chars().skip(0).take(input.find('\n').unwrap()-1).collect();
     let is_hex = puzzle_type == "HEX";
 
     // The initial puzzle
@@ -605,8 +605,7 @@ fn solve_puzzle(filename: &str) {
     // Nested for loops: iterate through each character in the input board
     // If it a cell character (capital letter, period, or asterisk, create a cell for it), update/create a flow
     for line in &split_input {
-        let mut col = 0; // Track the current column
-        for c in line.chars() {
+        for (col, c) in line.chars().enumerate() {
             // Check if the character is a cell character
             if c.is_ascii_uppercase() || c == '.' || c == '*' {
                 let is_bridge = c == '*'; // Asterisks are bridges
@@ -624,17 +623,15 @@ fn solve_puzzle(filename: &str) {
                     if c.is_ascii_uppercase() {
                         let mut flow_id_1 = None;
                         let mut flow_exists = false;
-                        let mut count = 0;
 
                         // Check if a flow with the current letter already exists
                         // If it does, update hte appropriate values
-                        for flow in puzzle.flows.iter_mut() {
+                        for (count, flow) in puzzle.flows.iter_mut().enumerate() {
                             if flow.get_letter() == c {
                                 flow_exists = true;
                                 flow.update_endpoint(1, cell_id);
                                 flow_id_1 = Some(FlowId {index: count});
                             }
-                            count += 1;
                         }
 
                         // If the flow doesn't exist, create a new one
@@ -663,7 +660,6 @@ fn solve_puzzle(filename: &str) {
                 max_cell_row = max(max_cell_row, row);
                 max_cell_col = max(max_cell_col, col);
             }
-            col += 1;
         }
         row += 1;
     }
@@ -674,8 +670,7 @@ fn solve_puzzle(filename: &str) {
     // This time, look for neighbor characters: '-', '|', '/', '\'
     // When one is found, update the appropriate cells
     for line in &split_input {
-        let mut col = 0;
-        for c in line.chars() {
+        for (col, c) in line.chars().enumerate() {
             // If the character is a neighbor character, proceed
             if c == '-' || c == '/' || c == '\\' || c == '|' {
                 // Get the coordinates of the two neighbors, and the neighbor relationship for each
@@ -725,7 +720,6 @@ fn solve_puzzle(filename: &str) {
                 puzzle.get_cell_mut(CellId { index: *cell_map.get(&key1).unwrap() }).unwrap().add_neighbor(CellId { index: *cell_map.get(&key2).unwrap() });
                 puzzle.get_cell_mut(CellId { index: *cell_map.get(&key2).unwrap() }).unwrap().add_neighbor(CellId { index: *cell_map.get(&key1).unwrap() });
             }
-            col += 1;
         }
         row += 1;
     }
@@ -739,12 +733,12 @@ fn solve_puzzle(filename: &str) {
     // Solve it. Just like that. It's done!
     let res = greedy_best_first(puzzle);
 
-    if res.is_none() {
+    if let Some(r) = res {
+        r.print_self();
+        println!("Finished in {} seconds!", start.elapsed());
+    } else {
         println!("Uh oh, no solution!");
         println!("Failed in {} seconds!", start.elapsed());
-    } else {
-        res.unwrap().print_self();
-        println!("Finished in {} seconds!", start.elapsed());
     }
 }
 
@@ -771,7 +765,7 @@ fn greedy_best_first(puzzle: Puzzle) -> Option<Puzzle> {
 
     let mut latest: Option<Puzzle> = None;
 
-    while frontier.len() > 0 {
+    while !frontier.is_empty() {
         states_visited += 1;
         frontier_max = max(frontier_max, frontier.len());
 
@@ -785,7 +779,7 @@ fn greedy_best_first(puzzle: Puzzle) -> Option<Puzzle> {
         states_created += children.len();
 
         // Evaluate each child
-        while children.len() > 0 {
+        while !children.is_empty() {
             let child = children.pop().unwrap();
 
             // Yay! We're done! Print some stats and return
@@ -848,9 +842,8 @@ fn greedy_best_first(puzzle: Puzzle) -> Option<Puzzle> {
              (discarded_cc as f64 / children_discarded as f64));
     println!("Uh oh, no solution!");
 
-    if latest.is_some() {
+    if let Some(l) = latest {
         println!("Latest configuration:");
-        let l = latest.unwrap();
         l.print_self();
 
         println!("Latest children:");
