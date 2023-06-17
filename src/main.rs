@@ -194,12 +194,12 @@ impl Puzzle {
     pub fn new_flow(&mut self, letter: char) -> FlowId {
         let next_index = self.num_flows();
         self.flows.push(Flow {
-            id: next_index,
+            id: next_index as usize,
             endpoints: [None; 2],
             letter,
         });
 
-        FlowId { index: next_index }
+        FlowId { index: next_index as usize }
     }
 
     pub fn print_self(&self) {
@@ -256,8 +256,8 @@ impl Puzzle {
         println!("{}\n", bridge_addendum);
     }
 
-    pub fn num_flows(&self) -> usize {
-        self.flows.len()
+    pub fn num_flows(&self) -> u64 {
+        self.flows.len() as u64
     }
 
     pub fn get_flow(&self, id: FlowId) -> Option<&Flow> {
@@ -268,15 +268,15 @@ impl Puzzle {
         self.flows.get_mut(id.index)
     }
 
-    pub fn num_complete(&self) -> usize {
+    pub fn num_complete(&self) -> u64 {
         self.flows
             .iter()
             .filter(|flow| flow.is_complete(self))
-            .count()
+            .count() as u64
     }
 
-    pub fn num_open_cells(&self) -> usize {
-        self.cells.iter().filter(|cell| !cell.is_occupied()).count()
+    pub fn num_open_cells(&self) -> u64 {
+        self.cells.iter().filter(|cell| !cell.is_occupied()).count() as u64
     }
 
     pub fn is_complete(&self) -> bool {
@@ -322,7 +322,7 @@ impl Puzzle {
         {
             let mut child = self.clone();
 
-            let mut cell_to_move_to = child.get_cell_mut(*n_id).unwrap();
+            let cell_to_move_to = child.get_cell_mut(*n_id).unwrap();
 
             cell_to_move_to.flow_id = Some(FlowId {
                 index: flow_id.index,
@@ -343,14 +343,14 @@ impl Puzzle {
         children
     }
 
-    pub fn num_possible_children(&self) -> usize {
+    pub fn num_possible_children(&self) -> u64 {
         let endpoint_id = self.get_endpoint_to_extend();
         // If there is no endpoint to extend, there are no possible children
         if endpoint_id.index == NON_EXISTENT_CELL_ID {
             return 0;
         }
         let endpoint_cell = self.get_cell(endpoint_id).unwrap();
-        endpoint_cell.num_open_neighbors(self)
+        endpoint_cell.num_open_neighbors(self) as u64
     }
 
     // Basically, find the endpoint with the fewest open neighbors (possibilities) and return that one
@@ -535,7 +535,7 @@ impl Puzzle {
         // endpoints neighboring it (both endpoints neighbor at least one member of the region)
         'region_loop_1: for region in connected_component_sets.iter() {
             'flow_loop_1: for f in 0..self.num_flows() {
-                let flow = self.get_flow(FlowId { index: f }).unwrap();
+                let flow = self.get_flow(FlowId { index: f as usize }).unwrap();
                 if flow.is_complete(self) {
                     continue;
                 }
@@ -565,7 +565,7 @@ impl Puzzle {
 
         // Analyze each flow: both endpoints must have a neighboring region in common, otherwise connecting them is impossible
         'flow_loop_2: for f in 0..self.num_flows() {
-            let flow = self.get_flow(FlowId { index: f }).unwrap();
+            let flow = self.get_flow(FlowId { index: f as usize }).unwrap();
             if flow.is_complete(self) {
                 continue;
             }
@@ -597,7 +597,7 @@ impl Puzzle {
 
     // Magic numbers galore! (once upon a time)
     // Anyway, return the score of a board
-    pub fn h(&self) -> usize {
+    pub fn h(&self) -> u64 {
         // Modified from https://mzucker.github.io/2016/08/28/flow-solver.html (incorporates parts of g() and h() into one)
         1000 - self.num_open_cells() + self.num_complete() * 2 - self.num_possible_children()
     }
@@ -659,6 +659,9 @@ fn solve_puzzle(filename: &str) {
     // Nested for loops: iterate through each character in the input board
     // If it a cell character (capital letter, period, or asterisk, create a cell for it), update/create a flow
     for line in &split_input {
+        if line.starts_with("//") {
+            continue;
+        }
         for (col, c) in line.chars().enumerate() {
             // Check if the character is a cell character
             if c.is_ascii_uppercase() || c == '.' || c == '*' {
@@ -724,6 +727,9 @@ fn solve_puzzle(filename: &str) {
                            // This time, look for neighbor characters: '-', '|', '/', '\'
                            // When one is found, update the appropriate cells
     for line in &split_input {
+        if line.starts_with("//") {
+            continue;
+        }
         for (col, c) in line.chars().enumerate() {
             // If the character is a neighbor character, proceed
             if c == '-' || c == '/' || c == '\\' || c == '|' {
@@ -815,15 +821,15 @@ fn greedy_best_first(puzzle: Puzzle) -> Option<Puzzle> {
 
     // Stats
     let mut frontier_max = 0;
-    let mut states_visited = 0;
-    let mut children_discarded = 0;
+    let mut states_visited: u64 = 0;
+    let mut children_discarded: u64 = 0;
     let mut states_created = 1;
-    let mut max_flows_completed = 0;
-    let mut discarded_no_children = 0;
-    let mut discarded_dead_end = 0;
-    let mut discarded_pools = 0;
-    let mut discarded_blocked = 0;
-    let mut discarded_cc = 0;
+    let mut max_flows_completed: u64 = 0;
+    let mut discarded_no_children: u64 = 0;
+    let mut discarded_dead_end: u64 = 0;
+    let mut discarded_pools: u64 = 0;
+    let mut discarded_blocked: u64 = 0;
+    let mut discarded_cc: u64 = 0;
 
     let mut avg_num_flows_complete = 0;
     let mut avg_num_cells_open = 0;
